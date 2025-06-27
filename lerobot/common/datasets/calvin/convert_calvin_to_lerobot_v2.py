@@ -41,24 +41,33 @@ CALVIN_ROOT = Path('/data/fywang/Calvin/task_ABCD_D')
 OUTPUT_ROOT = CALVIN_ROOT / 'lerobot_v2_dataset'
 SPLITS = ['training', 'validation']
 ALL_KEYS = [
-    'actions', 'rel_actions', 'robot_obs', 'scene_obs',
+    'rel_actions', 'robot_obs', 'scene_obs',
     'rgb_static', 'rgb_gripper',
 ]
 
 # 1. Define features dict for LeRobotDataset
 # You may need to adjust dtype/shape for your data!
 def get_features_from_sample(sample):
+    # Use the same mapping as map_calvin_to_lerobot_keys
+    mapping = {
+        'scene_obs': 'observation.environment_state',
+        'robot_obs': 'observation.state',
+        'rgb_static': 'observation.images.top',
+        'rgb_gripper': 'observation.images.wrist',
+        'rel_actions': 'action',
+    }
     features = {}
     for key, arr in sample.items():
-        if key in ['rgb_static', 'rgb_gripper']:
+        mapped_key = mapping.get(key, key)
+        if mapped_key in ['observation.images.top', 'observation.images.wrist']:
             shape = (arr.shape[2], arr.shape[0], arr.shape[1]) if arr.ndim == 3 else arr.shape
-            features[key] = {
+            features[mapped_key] = {
                 "dtype": "image",
                 "shape": shape,
                 "names": ["height", "width", "channels"],
             }
         else:
-            features[key] = {
+            features[mapped_key] = {
                 "dtype": "float64",
                 "shape": arr.shape,
                 "names": None,
@@ -83,6 +92,21 @@ def load_episode_frames(args):
                 frame[k] = arr
         frames.append((frame, lang, t / fps))
     return frames
+
+def map_calvin_to_lerobot_keys(frame):
+    """Map Calvin keys to LeRobot keys as per user specification."""
+    mapping = {
+        'scene_obs': 'observation.environment_state',
+        'robot_obs': 'observation.state',
+        'rgb_static': 'observation.images.top',
+        'rgb_gripper': 'observation.images.wrist',
+        'rel_actions': 'action',
+    }
+    new_frame = {}
+    for k, v in frame.items():
+        new_key = mapping.get(k, k)
+        new_frame[new_key] = v
+    return new_frame
 
 def main():
     args = parse_args()
@@ -181,6 +205,7 @@ def main():
                                      total=len(episode_args),
                                      desc=f"batch {batch_num}"):
                 for frame, lang, timestamp in episode_frames:
+                    frame = map_calvin_to_lerobot_keys(frame)
                     ds.add_frame(frame, task=lang, timestamp=timestamp)
                 ds.save_episode()
 
