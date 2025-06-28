@@ -15,13 +15,29 @@ import numpy as np
 import argparse
 import time
 import json
+import gc
 from pathlib import Path
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timedelta
 
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.datasets.utils import DEFAULT_FEATURES
+
+def get_memory_usage():
+    """Get current memory usage in GB."""
+    if PSUTIL_AVAILABLE:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        return memory_info.rss / 1024 / 1024 / 1024  # Convert to GB
+    else:
+        return 0  # Return 0 if psutil is not available
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Convert Calvin dataset to LeRobotDataset v2 format')
@@ -122,6 +138,7 @@ def main():
     print(f"Using {args.threads} threads for processing")
     print(f"Calvin root: {CALVIN_ROOT}")
     print(f"Output root: {OUTPUT_ROOT}")
+    print(f"Initial memory usage: {get_memory_usage():.2f} GB")
 
     # Start overall timer
     overall_start_time = datetime.now()
@@ -201,22 +218,44 @@ def main():
         ]
 
         with ProcessPoolExecutor(max_workers=args.threads) as executor:
-            for episode_frames in tqdm(executor.map(load_episode_frames, episode_args),
-                                     total=len(episode_args),
-                                     desc=f"batch {batch_num}"):
-                for frame, lang, timestamp in episode_frames:
-                    frame = map_calvin_to_lerobot_keys(frame)
-                    ds.add_frame(frame, task=lang, timestamp=timestamp)
-                ds.save_episode()
+            # Submit all episodes for processing
+            future_to_episode = {
+                executor.submit(load_episode_frames, episode_args[i]): i
+                for i in range(len(episode_args))
+            }
+
+            # Process episodes as they complete and save immediately
+            completed_episodes = 0
+            for future in tqdm(future_to_episode, total=len(episode_args), desc=f"batch {batch_num}"):
+                try:
+                    episode_frames = future.result()
+                    # Save this episode immediately
+                    for frame, lang, timestamp in episode_frames:
+                        frame = map_calvin_to_lerobot_keys(frame)
+                        ds.add_frame(frame, task=lang, timestamp=timestamp)
+                    ds.save_episode()
+                    completed_episodes += 1
+                    # Clear episode data to free memory
+                    del episode_frames
+                    # Clear hf_dataset to prevent memory accumulation
+                    ds.hf_dataset = ds.create_hf_dataset()
+                except Exception as e:
+                    print(f"Error processing episode: {e}")
+                    continue
 
         # Update progress
-        total_episodes_processed += len(batch_episodes)
+        total_episodes_processed += completed_episodes
         batch_end_time = datetime.now()
         batch_duration = (batch_end_time - batch_start_time).total_seconds()
 
         print(f"Batch {batch_num} completed at: {batch_end_time.strftime('%H:%M:%S')}")
         print(f"Batch duration: {batch_duration:.1f}s")
+        print(f"Episodes completed in this batch: {completed_episodes}/{len(batch_episodes)}")
         print(f"Progress: {total_episodes_processed}/{total_episodes_to_process} episodes ({total_episodes_processed/total_episodes_to_process*100:.1f}%)")
+        print(f"Memory usage: {get_memory_usage():.2f} GB")
+
+        # Force garbage collection after each batch to free memory
+        gc.collect()
 
         # Estimate remaining time
         if total_episodes_processed > 0:
@@ -256,6 +295,7 @@ def main():
     print(f"Validation episodes: {validation_episodes}")
     if total_episodes_processed > 0:
         print(f"Average time per episode: {total_duration/total_episodes_processed:.1f} seconds")
+    print(f"Final memory usage: {get_memory_usage():.2f} GB")
     print("The dataset is now in LeRobotDataset v2 format with proper splits.")
 
 if __name__ == "__main__":
