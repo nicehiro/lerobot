@@ -7,7 +7,7 @@ from lerobot.common.policies.vla.smolvlm_with_expert import (
     SmolVLMWithExpertModel,
 )
 from lerobot.common.policies.vla.head import DiffusionActionHead, FlowMatchingActionHead
-from lerobot.common.policies.vla.dit import DiT, DiTBlock, FinalLayer
+from lerobot.common.policies.vla.head.dit import DiT, DiTBlock, FinalLayer
 
 __all__ = [
     "VLAConfig",

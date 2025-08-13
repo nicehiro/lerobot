@@ -7,7 +7,7 @@ from torch import nn
 
 import lerobot.common.policies.vla.diffusion.gaussian_diffusion as gd
 from lerobot.common.policies.vla.diffusion.respace import SpacedDiffusion, space_timesteps
-from lerobot.common.policies.vla.dit import DiT_models
+from lerobot.common.policies.vla.head.dit import DiT_models
 
 
 def sample_beta(alpha, beta, bsize, device):

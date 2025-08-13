@@ -143,7 +143,8 @@ def train(cfg: TrainPipelineConfig):
 
     logging.info("Creating optimizer and scheduler")
     optimizer, lr_scheduler = make_optimizer_and_scheduler(cfg, policy)
-    grad_scaler = GradScaler(device.type, enabled=cfg.policy.use_amp)
+    # Disable GradScaler for BFloat16 due to compatibility issues
+    grad_scaler = GradScaler(device.type, enabled=cfg.policy.use_amp and device.type != "cuda")
 
     step = 0  # number of policy updates (forward + backward + optim)
 
